@@ -60,13 +60,6 @@ def lightoff():
         pixels[i]=(0,0,0,0)
         pixels.show()
 
-def sleep_start(usr):
-    lightoff()
-    usr.sleep_start = dt.datetime.now()
-    usr.sleep = True
-
-
-
 class Info():
     def __init__(self):
         stream = os.popen('cat /proc/cpuinfo | grep Serial | awk "{print $3}"')
@@ -78,20 +71,38 @@ class Info():
         self.hex = '#fff0aa'
         self.color = (255,240,255)
         self.break_count = 0
-    @property
-    def sleep_time(self):
-        return self.sleep_time
+        self.human = False
+        self.human_time = 0
+        self.dist = 0
 
-    @sleep_time.setter
-    def sleep_time(self, value):
-        self.sleep_time=value
+    def sleep_mode(self):
+        lightoff()
+        self.sleep_start = dt.datetime.now()
+        self.sleep = True
+
+    def human_check(self):
+        fDistance=getDistance()
+        #Distance Check
+        if self.dist!=0: # if temp value exists,
+            if abs(fDistance - self.dist)  > 50:
+                # if the difference is greater than 100
+                if self.human: # switch human value
+                    self.human = False
+                else:
+                    self.human = True
+                    self.human_time = dt.datetime.now()
+        print("distance: ", self.dist, "human: ", self.human, "time: ", self.human_time)
+        # to compare previous value and current value
+        self.dist = fDistance
 
 def main():
-    human = False
     temp = 0
     usr = Info()
-    usr.color = hex_to_rgb(usr.hex)
     while True:
+        # make usr object
+        usr.color = hex_to_rgb(usr.hex)
+
+        # light control by light sensor
         if not usr.sleep: # if not in  sleep mode
             current = GPIO.input(23)
             print("light: ", current)
@@ -99,47 +110,46 @@ def main():
                 lighton(usr.color)
             elif current==0:
                 lightoff()
-        fDistance=getDistance()
-        #Distance Check
-        if temp!=0: # if temp value exists,
-            if fDistance - temp > 100: # if the difference is greater than 100
-                if human: # switch human value
-                    human = False
-                else:
-                    human = True
-        # to compare previous value and current value
-        temp = fDistance
-        print("distance: ", fDistance)
-        #if human:
-        # human exists, then after 1 hour, turn off the light
 
-        button.when_pressed= lambda : sleep_start(usr)
-        if usr.sleep:
-            print(usr.ID)
-            print(usr.sleep)
-            print(usr.sleep_start)
-            print("sleep mode")
-            continue
-        time.sleep(1)
+            usr.human_check()
+            if usr.human:
+                # human exists, then after 1 hour, turn off the light
+                if (dt.datetime.now() - usr.human_time).seconds / 3600 > 1:
+                    usr.sleep_mode()
 
-        while True:
+            button.when_pressed= lambda : usr.sleep_mode()
+
+        else: # while sleeping
             now = dt.datetime.now()
-            td6am = now.replace(hour = 6, minute=0, second=0, microsecond=0)
-            if now > td6am:
-            #if current time is later than 6am
-                if not human:
-                    usr.sleep_end = now # end sleep session
-                    usr.sleep = False
-                print("wake up")
-                break
-            elif now < td6am and not usr.doNotDisturb:
-            # elif current time is earlier than 6am and not doNotDisturb
-                if not human:
-                    usr. break_count+=1
-                    lighton(usr.color)
-                print("break out")
-                break
-
+            if now.hour<6:
+                td6am = now.replace(day = now.day, hour = 6, minute=0, second=0, microsecond=0)
+            else:
+                td6am = now.replace(day = now.day+1, hour = 6, minute=0, second=0, microsecond=0)
+            while True: #wait until end of sleep
+                now = dt.datetime.now()
+                print(now, td6am)
+                usr.human_check()
+                print(usr.human)
+                if not usr.human:
+                    if now > td6am:
+                    #if current time is later than 6am
+                        usr.sleep_end = now # end sleep session
+                        usr.sleep = False
+                        print("wake up")
+                        break
+                    elif now < td6am and not usr.doNotDisturb:
+                    # elif current time is earlier than 6am and not doNotDisturb
+                        usr.break_count+=1
+                        # light on until human come back
+                        while not usr.human:
+                            lighton(usr.color)
+                            usr.human_check()
+                            time.sleep(1)
+                        lightoff()
+                        print("break out")
+                        break
+                time.sleep(1)
+        time.sleep(1)
 
 
 if __name__ == "__main__":
